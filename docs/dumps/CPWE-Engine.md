@@ -1,51 +1,77 @@
-# CPWE Engine Dump
+# 🚀 CPWE Engine (Content Production Workflow Engine) - Architectural Dump
 
-Este documento detalha o submódulo **CPWE Engine** (Content Production Workflow Engine), descrevendo sua estrutura, tecnologias e responsabilidades.
+Este documento reflete a versão **Final e Refatorada** do motor de automação (isolado do ecossistema legado), detalhando a sua topologia, os padrões de resiliência e a mecânica de execução do Grafo Direcionado Acíclico (DAG).
 
-## Visão Geral
+## 1. Visão Arquitetural Macro
 
-O **CPWE Engine** é um motor de workflows de produção de conteúdo escrito em TypeScript e baseado no [Temporal.io](https://temporal.io/). Ele utiliza a API da OpenAI para geração e manipulação de texto, além do `zod` para validação de esquemas de dados.
+O **CPWE Engine** não é um mero script sequencial. Ele é construído sobre o padrão de **Sistemas Reativos Orientados a Eventos**, usando o [Temporal.io](https://temporal.io/) como plano de controle (Control Plane). 
 
-O objetivo do módulo é gerenciar tarefas assíncronas complexas e resilientes, dividindo a produção em "Nodes" (Nós) e orquestrando o fluxo de trabalho (Pipelines).
+Seu objetivo é **erradicar a alucinação (Agent Drift)** e garantir que a produção de conteúdo ocorra de forma determinística, mesmo que modelos da OpenAI falhem temporariamente ou o servidor sofra um crash.
 
-## Estrutura do Diretório (`cpwe-engine/`)
+### 📐 Topologia de Camadas (Layered Design)
+A arquitetura segue 4 pilares rigorosos:
+1. **Orchestration Layer (Temporal)**: Gerencia o ciclo de vida, as retentativas (retries) com backoff exponencial e o estado imutável.
+2. **Production Hardening Layer (Engines)**: Camada de interceptação que aplica cálculos matemáticos e verificação estrita antes de passar de um nó para o outro.
+3. **Execution Layer (Nodes)**: Atividades puras de negócio (buscar tendência, gerar roteiro, montar pacote).
+4. **Data Contract Layer (Schemas)**: Contratos duros definidos em `Zod` (CSO) que garantem a tipagem forte de entrada e saída.
+
+---
+
+## 2. Mapa do Código-Fonte (`src/`)
 
 ```text
-cpwe-engine/
-├── Dockerfile                  # Configuração de build Docker para o CPWE.
-├── litellm_config.yaml         # Configurações do proxy de modelos (LiteLLM).
-├── package.json                # Dependências Node.js (Temporal, OpenAI, Zod, TypeScript).
-├── tsconfig.json               # Configurações de compilação TypeScript.
-├── logs/                       # Diretório gerado para armazenar logs locais do worker.
-└── src/                        # Código-fonte principal da aplicação
-    ├── client-trigger.ts       # Script cliente para invocar e testar os workflows do Temporal.
-    ├── worker.ts               # Worker do Temporal que escuta filas e executa atividades/workflows.
-    ├── engines/                # Camadas e ferramentas de inteligência/processamento de conteúdo.
-    │   ├── ChannelMemoryLayer.ts
-    │   ├── ConsistencyChecker.ts
-    │   ├── FeatureExtractor.ts
-    │   ├── GoldenBenchmarkSuite.ts
-    │   ├── ModelReliabilityLayer.ts
-    │   └── QAValidator.ts
-    ├── nodes/                  # Nós de atividades granulares usados pelo fluxo.
-    │   ├── ScriptNode.ts       # Tratamento/Geração de scripts.
-    │   ├── TrendNode.ts        # Pesquisa/Análise de tendências.
-    │   ├── VideoPackageBuilder.ts # Construção do pacote de vídeo final.
-    │   └── index.ts            # Exportação das atividades.
-    └── workflows/              # Definição dos pipelines de execução orquestrados.
-        └── YouTubeVideoPipeline.ts # Workflow principal para criação de vídeos para o YouTube.
+cpwe-engine/src/
+├── schemas/
+│   └── cso.ts                  # Context State Object (CSO). Contrato estrito e imutável do sistema.
+├── workflows/
+│   └── YouTubeVideoPipeline.ts # DAG Principal. O cérebro que interliga os nós e define os Gates de Segurança.
+├── nodes/
+│   ├── index.ts                # Entrypoint de exportação das Atividades.
+│   ├── ScriptNode.ts           # Nó responsável por gerar o hook, narrativa e call_to_action (Zod-enforced).
+│   ├── TrendNode.ts            # Nó responsável por analisar sinais de audiência e intenção.
+│   └── VideoPackageBuilder.ts  # Nó final determinístico (Não usa LLM). Apenas compila o output aprovado.
+├── engines/
+│   ├── ChannelMemoryLayer.ts   # Memória Histórica: Evita fadiga de audiência penalizando hooks e ângulos repetidos.
+│   ├── ConsistencyChecker.ts   # Segurança: Valida se o Nó 2 (Script) respeitou o que foi pedido no Nó 1 (Trend).
+│   ├── FeatureExtractor.ts     # QA: Extrai features do texto bruto convertendo-as em matrizes de probabilidade.
+│   ├── GoldenBenchmarkSuite.ts # QA: Thresholds matemáticos parametrizados pelo nicho do canal.
+│   ├── ModelReliabilityLayer.ts# Resiliência: Monitora a taxa de falha dos modelos LLM e faz "Failover" automático.
+│   └── QAValidator.ts          # QA: Pure Math Scoring Engine. Decide se o vídeo passa ou é rejeitado.
+├── client-trigger.ts           # CLI / Client. Injeta o sinal inicial na fila do Temporal.
+└── worker.ts                   # O "Músculo" físico. Processo Node.js que escuta a fila do Temporal e executa a DAG.
 ```
 
-## Bibliotecas e Tecnologias-Chave
+---
 
-- **Temporal (`@temporalio/*`)**: Controla o ciclo de vida, retentativas e o estado dos workflows.
-- **OpenAI**: Para chamadas de inteligência artificial.
-- **Zod**: Garantia de tipagem e validação dos retornos de IA.
-- **TypeScript & Node.js**: Stack principal da lógica.
+## 3. O Padrão CSO (Context State Object)
 
-## Resumo dos Componentes
+No coração do motor existe a regra da **Imutabilidade e Append-Only**:
+- Nenhuma atividade (Nó) pode apagar ou sobreescrever dados do estado anterior.
+- Todos os dados transitam através do `CSO` (Tipificado via `Zod`).
+- Se um modelo (LLM) inventar uma chave que não existe no Schema, a `ModelReliabilityLayer` intercepta, lança um erro, e o Temporal repete a tarefa.
 
-1. **Workflows**: O fluxo `YouTubeVideoPipeline` amarra as chamadas aos "Nodes". Ele garante que, caso o container caia, o workflow possa ser retomado exatamente de onde parou.
-2. **Nodes**: Representam passos individuais do fluxo (como buscar a tendência ou montar o vídeo). Eles encapsulam lógica de negócio específica.
-3. **Engines**: Fornecem as "engrenagens" de IA para as tarefas, focando em consistência, retenção de contexto, QA (Quality Assurance) e extração de características.
-4. **Worker / Client**: O `worker.ts` registra as atividades e o workflow na fila do Temporal, enquanto o `client-trigger.ts` envia uma requisição para disparar uma nova pipeline de teste.
+---
+
+## 4. O Fluxo de Execução (O DAG de Produção)
+
+A execução do `YouTubeVideoPipeline.ts` segue estritamente as etapas abaixo:
+
+1. **Init**: Criação do CSO em branco (Versão 1.0).
+2. **Contextualização**: O motor busca o `ChannelMemorySnapshot` para saber o que **NÃO** fazer (evitar fadiga de audiência).
+3. **Nó 1 (Trend)**: Gera a ideia e a intenção de audiência. O CSO é atualizado.
+4. **Nó 2 (Script)**: Gera o roteiro completo guiado restritamente pelo `Anti-Drift Prompt`.
+5. **Hardening Gate 1 (Consistency)**: Verificação **Sem LLM**. Validação direta de Enums. Se o roteiro divergir da tendência, lança exceção `ConsistencyFault`.
+6. **Hardening Gate 2 (Math QA)**:
+   - Extrai features vetoriais do roteiro (ex: Densidade de narrativa, força do Hook nos 5s).
+   - O `QAValidator` aplica pesos de Álgebra Linear.
+   - Se a nota (score) for menor que o Threshold (ex: 0.82 para canais de Automação), o roteiro é **REJEITADO**, e o Temporal pode ser configurado para reiniciar o nó de Script.
+7. **Nó Final (Assembler)**: Monta e assina digitalmente o pacote de vídeo (Gera um Hash de Auditoria comprovando que passou pela Malha de QA).
+
+---
+
+## 5. Resiliência e "Failover" Automático
+
+O arquivo `ModelReliabilityLayer.ts` atua como um Disjuntor (Circuit Breaker).
+- Ele monitora cada "Rota de Capacidade" (ex: Rota de Geração de Roteiro vs Rota de Tendência).
+- Se a API da OpenAI (ou LiteLLM) falhar 3 vezes na quebra do Schema JSON (`ZodError`), a camada classifica o modelo primário como **DEGRADED**.
+- Imediatamente, ele altera o tráfego para um **Modelo de Fallback** (ex: trocando de `gpt-4o` para um modelo menor, porém mais estável, ou alternando provedores configurados no `litellm_config.yaml`).
