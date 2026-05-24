@@ -1,0 +1,12 @@
+# Configurações locais
+.env
+.env.*
+node_modules/
+dist/
+
+# Logs
+logs/
+*.log
+
+# Git
+.DS_Store
