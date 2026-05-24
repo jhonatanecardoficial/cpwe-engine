@@ -1,0 +1,95 @@
+import { proxyActivities, ApplicationFailure } from '@temporalio/workflow';
+import { CSO, CSOSchema, appendToCSO } from '../schemas/cso';
+import type * as activities from '../nodes'; // We'll assume activities are exported from a central index
+import { calculateVideoScore } from '../engines/QAValidator';
+import { validateCrossNodeConsistency } from '../engines/ConsistencyChecker';
+
+/**
+ * Temporal proxy binding for all strict Nodes and QA engines.
+ * We enforce a strict retry policy (e.g., maximum 2 retries per node) 
+ * at the Temporal worker level, not within the node itself.
+ */
+const {
+  TrendNodeActivity,
+  ScriptNodeActivity,
+  extractFeatures,
+  fetchChannelMemory,
+  VideoPackageBuilderActivity
+} = proxyActivities<typeof activities>({
+  startToCloseTimeout: '2 minutes',
+  retry: {
+    maximumAttempts: 2,
+  },
+});
+
+/**
+ * 🏭 THE PRODUCTION PIPELINE DAG
+ * YouTubeVideoPipeline
+ * 
+ * Strict deterministic execution graph.
+ * If any Node hallucinates or Zod fails, Temporal throws and retries up to max limits.
+ */
+export async function YouTubeVideoPipeline(topic: string): Promise<any> {
+  // 1. Initialize the STRICT Context State Object (CSO)
+  let csoState: CSO = CSOSchema.parse({ version: "1.0" });
+
+  // 1A. Fetch Channel Intelligence Memory Snapshot
+  const memorySnapshot = await fetchChannelMemory('ai_automation_channel');
+  csoState = appendToCSO(csoState, { channel_memory_snapshot: memorySnapshot });
+
+  // ---------------------------------------------------------
+  // NODE 1: TREND ANALYSIS
+  // ---------------------------------------------------------
+  const trendSignals = await TrendNodeActivity(csoState, topic);
+  
+  // Immutability Check: Append new signals strictly
+  csoState = appendToCSO(csoState, { trend_signals: trendSignals });
+
+  // ---------------------------------------------------------
+  // NODE 2: SCRIPT GENERATION
+  // ---------------------------------------------------------
+  const scriptMemory = await ScriptNodeActivity(csoState);
+  csoState = appendToCSO(csoState, { script_memory: scriptMemory });
+
+  // ---------------------------------------------------------
+  // HARDENING GATE 1: CROSS-NODE CONSISTENCY
+  // ---------------------------------------------------------
+  // Mathematical Enum checking. If Script drifted from Trend, kill execution.
+  // We execute this directly because it's a synchronous pure math function, not an activity
+  const consistencyResult = validateCrossNodeConsistency(csoState);
+  if (consistencyResult.decision === 'STOP') {
+    throw ApplicationFailure.create({
+      message: \`Consistency Check Failed: \${consistencyResult.broken_links.join(', ')}\`,
+      type: 'ConsistencyFault',
+      nonRetryable: false // Retry triggers script regeneration
+    });
+  }
+
+  // ---------------------------------------------------------
+  // HARDENING GATE 2: PURE MATH QA SYSTEM
+  // ---------------------------------------------------------
+  // Step 2A: Feature Extraction (Strict JSON)
+  const extractedFeatures = await extractFeatures(
+    csoState.script_memory?.narrative || '', 
+    csoState.script_memory?.hook || ''
+  );
+
+  // Step 2B: Deterministic Scoring Function (Local Math)
+  const qaResult = calculateVideoScore(extractedFeatures);
+  
+  if (qaResult.decision === 'REJECT') {
+    throw ApplicationFailure.create({
+      message: \`QA Scoring Failed. Score: \${qaResult.score}. Reasons: \${qaResult.failure_reasons.join(', ')}\`,
+      type: 'QualityAssuranceFault',
+      nonRetryable: false // Temporal will retry the DAG block or specific node based on compensation logic
+    });
+  }
+
+  // ---------------------------------------------------------
+  // FINAL NODE: OUTPUT ASSEMBLY
+  // ---------------------------------------------------------
+  // If it survived the QA math function, it is safe to package.
+  const finalVideoPackage = await VideoPackageBuilderActivity(csoState);
+  
+  return finalVideoPackage;
+}
