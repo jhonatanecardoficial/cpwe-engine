@@ -1,0 +1,25 @@
+model_list:
+  # CAPABILITY ROUTING: Trend Analysis
+  - model_name: trend_analysis
+    litellm_params:
+      model: openrouter/qwen/qwen-2.5-72b-instruct
+      timeout: 12   # timeout_ms limit in seconds
+      max_retries: 2
+      api_key: os.environ/OPENROUTER_API_KEY
+  # CAPABILITY ROUTING: Script Generation
+  - model_name: script_generation
+    litellm_params:
+      model: openrouter/deepseek/deepseek-chat-v3
+      timeout: 15
+      max_retries: 2
+      api_key: os.environ/OPENROUTER_API_KEY
+
+router_settings:
+  # Fallbacks trigger automatically when a model times out or returns bad status
+  fallbacks:
+    - {"trend_analysis": ["openrouter/google/gemma-2-27b-it"]}
+    - {"script_generation": ["openrouter/meta-llama/llama-3.3-70b-instruct"]}
+  
+  # Model Degradation Monitoring logic (handled via LiteLLM failure interceptors)
+  routing_strategy: usage-based-routing
+  enable_pre_call_checks: true
