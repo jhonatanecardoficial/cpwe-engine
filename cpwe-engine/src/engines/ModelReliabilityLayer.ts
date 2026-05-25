@@ -1,9 +1,11 @@
 import OpenAI from 'openai';
+import * as dotenv from 'dotenv';
+dotenv.config();
 import { z, ZodType } from 'zod';
 
 const openai = new OpenAI({
   baseURL: process.env.LITELLM_BASE_URL || 'https://openrouter.ai/api/v1',
-  apiKey: process.env.LITELLM_API_KEY || 'sk-litellm-dummy'
+  apiKey: process.env.OPENROUTER_API_KEY || process.env.LITELLM_API_KEY || 'sk-litellm-dummy'
 });
 
 interface ModelStats {

@@ -14,7 +14,7 @@ async function run() {
   let connection;
   for (let i = 0; i < 10; i++) {
     try {
-      connection = await NativeConnection.connect({ address: 'temporal:7233' });
+      connection = await NativeConnection.connect({ address: 'localhost:7233' });
       break;
     } catch (err) {
       console.log('[CPWE] Waiting for Temporal to be ready...');
@@ -25,7 +25,7 @@ async function run() {
   
   const worker = await Worker.create({
     connection,
-    workflowsPath: resolve(__dirname, './workflows/YouTubeVideoPipeline.js'),
+    workflowsPath: require.resolve('./workflows/YouTubeVideoPipeline'),
     activities,
     taskQueue: 'cpwe-production-queue',
   });
