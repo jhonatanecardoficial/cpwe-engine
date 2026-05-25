@@ -1,5 +1,6 @@
 import { proxyActivities, ApplicationFailure } from '@temporalio/workflow';
 import { CSO, CSOSchema, appendToCSO } from '../schemas/cso';
+import { CompilerError } from '../schemas/CompilerErrors';
 import type * as activities from '../nodes'; // We'll assume activities are exported from a central index
 import { calculateVideoScore } from '../engines/QAValidator';
 import { validateCrossNodeConsistency } from '../engines/ConsistencyChecker';
@@ -15,9 +16,15 @@ const {
   ScriptNodeActivity,
   extractFeatures,
   fetchChannelMemory,
-  VideoPackageBuilderActivity
-} = proxyActivities<typeof activities>({
-  startToCloseTimeout: '2 minutes',
+  VideoPackageBuilderActivity,
+  // New IR Activities (Mocks/Wrappers to be created in nodes/index.ts)
+  ScenePlannerActivity,
+  AssetResolverActivity,
+  TimelineBuilderActivity,
+  DRGValidatorActivity,
+  FFmpegRenderActivity
+} = proxyActivities<any>({
+  startToCloseTimeout: '5 minutes',
   retry: {
     maximumAttempts: 2,
   },
@@ -103,5 +110,64 @@ export async function YouTubeVideoPipeline(topic: string): Promise<any> {
   // If it survived the QA math function, it is safe to package.
   const finalVideoPackage = await VideoPackageBuilderActivity(csoState);
   
-  return finalVideoPackage;
+  // ---------------------------------------------------------
+  // MEDIA COMPILER SYSTEM (LLVM for Video)
+  // ---------------------------------------------------------
+  
+  // 1. Attention-Optimized Segmentation
+  const abstractScenes = await ScenePlannerActivity(
+    csoState.script_memory?.narrative || '', 
+    30 // target FPS
+  );
+
+  // 2. High-Level Intermediate Representation (DRG) & Constraint Solving
+  let drgModel;
+  try {
+    drgModel = await TimelineBuilderActivity.compileToDRG(
+      `SEED_${Date.now()}_${topic}`, // GLOBAL_RENDER_SEED
+      30, // target FPS
+      abstractScenes
+    );
+  } catch (err: any) {
+    if (err instanceof CompilerError) {
+      throw ApplicationFailure.create({
+        message: err.message,
+        type: err.type, // e.g. ASSET_FAIL or GRAPH_FAIL
+        nonRetryable: true // Compilation mathematically failed
+      });
+    }
+    throw err;
+  }
+
+  // 3. Compile-Time Strict Validation
+  await DRGValidatorActivity(drgModel);
+
+  // 4. Lowering Pass: DRG -> Execution IR (Hardware level Memory Model)
+  const executionGraph = await TimelineBuilderActivity.lowerToExecutionIR(drgModel);
+
+  // 5. Raw FFmpeg Rendering (Runtime Executor OCO)
+  // 🔴 HARD FAIL POLICY: Any issue during execution will abort the DAG. No fallback.
+  const outputPath = `/tmp/render_${Date.now()}.mp4`;
+  try {
+    await FFmpegRenderActivity(executionGraph, outputPath);
+  } catch (err: any) {
+    // Determine runtime error sub-type
+    const isEnvIssue = err.message.includes('ffmpeg not found');
+    const isIoIssue = err.message.includes('No such file');
+    
+    const failType = isEnvIssue ? 'EXEC_FAIL_ENV' : (isIoIssue ? 'EXEC_FAIL_IO' : 'EXEC_FAIL_RUNTIME');
+
+    throw ApplicationFailure.create({
+      message: `Deterministic Execution Failed: ${err.message}`,
+      type: failType,
+      nonRetryable: true
+    });
+  }
+
+  return {
+    ...finalVideoPackage,
+    render_output: outputPath,
+    compiler_checksum: executionGraph.compiler_checksum,
+    schema_version: executionGraph.schema_version
+  };
 }

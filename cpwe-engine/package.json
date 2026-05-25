@@ -17,10 +17,18 @@
     "dotenv": "^16.6.1",
     "googleapis": "^172.0.0",
     "openai": "^4.76.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "@remotion/bundler": "^4.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
