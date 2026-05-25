@@ -3,6 +3,7 @@ import { CSO, CSOSchema, appendToCSO } from '../schemas/cso';
 import type * as activities from '../nodes'; // We'll assume activities are exported from a central index
 import { calculateVideoScore } from '../engines/QAValidator';
 import { validateCrossNodeConsistency } from '../engines/ConsistencyChecker';
+import { ChannelProfile, BrandVoiceProfile, VisualIdentityProfile, PublishingProfile, MonetizationProfile } from '../channel';
 
 /**
  * Temporal proxy binding for all strict Nodes and QA engines.
@@ -33,7 +34,18 @@ export async function YouTubeVideoPipeline(topic: string): Promise<any> {
   // 1. Initialize the STRICT Context State Object (CSO)
   let csoState: CSO = CSOSchema.parse({ version: "1.0" });
 
-  // 1A. Fetch Channel Intelligence Memory Snapshot
+  // 1A. Inject Channel Identity Layer (CIL) into CSO
+  csoState = appendToCSO(csoState, { 
+    channel_identity: {
+      profile: ChannelProfile,
+      voice: BrandVoiceProfile,
+      visual: VisualIdentityProfile,
+      publishing: PublishingProfile,
+      monetization: MonetizationProfile
+    }
+  });
+
+  // 1B. Fetch Channel Intelligence Memory Snapshot
   const memorySnapshot = await fetchChannelMemory('ai_automation_channel');
   csoState = appendToCSO(csoState, { channel_memory_snapshot: memorySnapshot });
 
@@ -59,7 +71,7 @@ export async function YouTubeVideoPipeline(topic: string): Promise<any> {
   const consistencyResult = validateCrossNodeConsistency(csoState);
   if (consistencyResult.decision === 'STOP') {
     throw ApplicationFailure.create({
-      message: \`Consistency Check Failed: \${consistencyResult.broken_links.join(', ')}\`,
+      message: `Consistency Check Failed: ${consistencyResult.broken_links.join(', ')}`,
       type: 'ConsistencyFault',
       nonRetryable: false // Retry triggers script regeneration
     });
@@ -79,7 +91,7 @@ export async function YouTubeVideoPipeline(topic: string): Promise<any> {
   
   if (qaResult.decision === 'REJECT') {
     throw ApplicationFailure.create({
-      message: \`QA Scoring Failed. Score: \${qaResult.score}. Reasons: \${qaResult.failure_reasons.join(', ')}\`,
+      message: `QA Scoring Failed. Score: ${qaResult.score}. Reasons: ${qaResult.failure_reasons.join(', ')}`,
       type: 'QualityAssuranceFault',
       nonRetryable: false // Temporal will retry the DAG block or specific node based on compensation logic
     });

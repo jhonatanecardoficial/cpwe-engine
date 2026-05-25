@@ -6,7 +6,7 @@ async function run() {
   console.log(`[TRIGGER] Iniciando workflow para o tópico: "${topic}"...`);
 
   // Conectar ao servidor local do Temporal
-  const connection = await Connection.connect({ address: 'temporal:7233' });
+  const connection = await Connection.connect({ address: 'localhost:7233' });
   const client = new Client({ connection });
 
   const workflowId = `cpwe-cli-job-${Date.now()}`;

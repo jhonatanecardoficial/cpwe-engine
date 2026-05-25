@@ -41,6 +41,7 @@ export const ScriptMemorySchema = z.strictObject({
 export const CSOSchema = z.strictObject({
   version: z.literal("1.0"),
   channel_memory_snapshot: ChannelMemorySnapshotSchema.optional(),
+  channel_identity: z.any().optional(), // Injected CIL DNA
   trend_signals: TrendSignalsSchema.optional(),
   audience_profile: AudienceProfileSchema.optional(),
   script_memory: ScriptMemorySchema.optional(),

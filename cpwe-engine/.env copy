@@ -1,0 +1,18 @@
+# Suas chaves da API OpenAI (ou de outro provedor)
+# OPENAI_API_KEY="SUA_CHAVE_OPENAI_AQUI"
+OPENROUTER_API_KEY=
+GEMINI_API_KEY=
+
+# Uma chave secreta para autenticação do Paperclip (pode ser uma string aleatória)
+BETTER_AUTH_SECRET=
+
+# URL pública do Paperclip (ajuste se estiver em um ambiente diferente)
+# PAPERCLIP_PUBLIC_URL="http://paperclip:8080"
+
+# Opcional: Chave da API do OpenClaw para plugins externos
+# OPENCLAW_API_KEY="SUA_CHAVE_OPENCLAW_AQUI"
+
+# YouTube
+YOUTUBE_CLIENT_ID=
+YOUTUBE_CLIENT_SECRET=
+YOUTUBE_REFRESH_TOKEN=

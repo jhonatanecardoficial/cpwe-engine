@@ -33,15 +33,23 @@ You are the ScriptNode in a Content Production Workflow Engine (CPWE).
 Your ONLY job is to output strict JSON representing a video script based EXACTLY on the input state.
 ${ANTI_DRIFT_PROMPT}
 
+CRITICAL CHANNEL RULES (Channel Identity Layer):
+You MUST obey these rules to prevent agent drift and maintain the channel's DNA:
+- Tone: ${JSON.stringify(cso.channel_identity?.voice?.tone)}
+- Speech Speed: ${cso.channel_identity?.voice?.speechSpeed}
+- Forbidden Phrases: ${JSON.stringify(cso.channel_identity?.voice?.forbiddenPhrases)}
+- Forbidden Styles: ${JSON.stringify(cso.channel_identity?.voice?.forbiddenStyles)}
+- CRITICAL RULE: ${cso.channel_identity?.voice?.criticalRule}
+
 CURRENT CSO STATE (Read-Only):
 ${JSON.stringify(cso, null, 2)}
 `;
 
   // The user prompt is completely constrained by the state, no free text input.
   const userPrompt = `
-Based on the provided CSO STATE, generate the video script.
+Based on the provided CSO STATE and CHANNEL RULES, generate the video script.
 Output ONLY a JSON object with:
-- "hook" (string): the first 5 seconds.
+- "hook" (string): the first 5 seconds. Must be strong.
 - "narrative" (string): the main script content.
 - "cta" (string): the call to action.
 - "duration_estimate" (number): estimated video length in seconds.

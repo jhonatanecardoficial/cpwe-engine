@@ -12,3 +12,5 @@ logs/
 
 # Git
 .DS_Store
+# Dumps
+docs/dumps/*
